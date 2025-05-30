@@ -45,10 +45,11 @@ function logInfo(traceId, step, msg, extra = {}) {
   logger.info(`[${traceId}] [${step}] ${msg}`, extra);
 }
 
+// 修正后的签名算法: MD5 + HMAC-SHA1 + Base64
 function generateSignature(appId, apiSecret, timestamp) {
   const rawStr = `${appId}${timestamp}`;
   const md5 = crypto.createHash('md5').update(rawStr).digest('hex');
-  const hmac = crypto.createHmac('sha256', apiSecret).update(md5).digest();
+  const hmac = crypto.createHmac('sha1', apiSecret).update(md5).digest();
   return Buffer.from(hmac).toString('base64');
 }
 
@@ -73,7 +74,8 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
     const resp = await axios.post(url, form, { headers });
     logInfo(traceId, 'upload', `Upload response:`, { data: resp.data });
     if (resp.data.code !== 0) throw new Error(`上传失败: ${resp.data.desc || resp.data.code}`);
-    return resp.data.data.fileld;
+    // 注意：这里返回的fileId字段
+    return resp.data.data.fileId;
   } catch (err) {
     logError(traceId, 'upload', err);
     throw err;
@@ -82,7 +84,7 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
 
 // 查询文档状态接口
 async function waitForFileReady(fileId, traceId, maxTries = 20) {
-  const url = `${XF_BASE}/file/detail?fileld=${fileId}`;
+  const url = `${XF_BASE}/file/detail?fileId=${fileId}`; // 修正为fileId
   for (let i = 0; i < maxTries; i++) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = generateSignature(APP_ID, API_SECRET, timestamp);
@@ -116,7 +118,7 @@ async function startSummary(fileId, traceId) {
   const signature = generateSignature(APP_ID, API_SECRET, timestamp);
 
   const form = new FormData();
-  form.append('fileld', fileId);
+  form.append('fileId', fileId); // 修正为fileId
 
   const headers = {
     ...form.getHeaders(),
