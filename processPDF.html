@@ -33,69 +33,85 @@
     </div>
   </div>
   <script>
-    const pdfForm = document.getElementById('pdfForm');
-    const fileInput = document.getElementById('fileInput');
-    const errorMsg = document.getElementById('errorMsg');
-    const summaryBox = document.getElementById('summaryBox');
-    const summaryText = document.getElementById('summaryText');
-    const traceIdBox = document.getElementById('traceIdBox');
-    const submitBtn = document.getElementById('submitBtn');
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('[信息] JS已加载，DOM已就绪');
 
-    pdfForm.addEventListener('submit', async function (e) {
-      e.preventDefault();
-      errorMsg.style.display = 'none';
-      summaryBox.style.display = 'none';
-      errorMsg.textContent = '';
-      summaryText.textContent = '';
-      traceIdBox.textContent = '';
+      const pdfForm = document.getElementById('pdfForm');
+      const fileInput = document.getElementById('fileInput');
+      const errorMsg = document.getElementById('errorMsg');
+      const summaryBox = document.getElementById('summaryBox');
+      const summaryText = document.getElementById('summaryText');
+      const traceIdBox = document.getElementById('traceIdBox');
+      const submitBtn = document.getElementById('submitBtn');
 
-      const file = fileInput.files[0];
-      if (!file) {
-        errorMsg.textContent = '请先选择PDF文件';
-        errorMsg.style.display = '';
-        return;
-      }
-      if (file.type !== 'application/pdf') {
-        errorMsg.textContent = '请选择PDF文件';
-        errorMsg.style.display = '';
+      if (!pdfForm) {
+        console.error('[致命错误] 没有找到id为pdfForm的表单，JS终止！');
         return;
       }
 
-      submitBtn.disabled = true;
-      submitBtn.textContent = "正在上传并生成摘要...";
+      pdfForm.addEventListener('submit', async function (e) {
+        console.log('[事件] 表单提交事件被触发');
+        e.preventDefault();
+        errorMsg.style.display = 'none';
+        summaryBox.style.display = 'none';
+        errorMsg.textContent = '';
+        summaryText.textContent = '';
+        traceIdBox.textContent = '';
 
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        // fetch 到 Node 后端，注意端口
-        const resp = await fetch('http://localhost:3000/api/xfyun/summarize', {
-          method: 'POST',
-          body: formData
-        });
-
-        let data = null;
-        try {
-          data = await resp.json();
-        } catch (e) {
-          throw new Error('后端返回内容异常，无法解析为JSON，状态码：' + resp.status);
-        }
-
-        if (resp.ok) {
-          summaryText.textContent = data.summary || "未获取到摘要内容";
-          summaryBox.style.display = '';
-          traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
-        } else {
-          errorMsg.textContent = data.error || "服务端异常";
+        const file = fileInput.files[0];
+        if (!file) {
+          errorMsg.textContent = '请先选择PDF文件';
           errorMsg.style.display = '';
-          traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
+          console.error('[错误] 未选择文件');
+          return;
         }
-      } catch (err) {
-        errorMsg.textContent = "网络或服务异常：" + err.message;
-        errorMsg.style.display = '';
-      }
-      submitBtn.disabled = false;
-      submitBtn.textContent = "上传并生成摘要";
+        if (file.type !== 'application/pdf') {
+          errorMsg.textContent = '请选择PDF文件';
+          errorMsg.style.display = '';
+          console.error('[错误] 选择的不是PDF文件，type=', file.type);
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "正在上传并生成摘要...";
+
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          console.log('[信息] 即将发起fetch请求到后端: http://localhost:3000/api/xfyun/summarize');
+          const resp = await fetch('http://localhost:3000/api/xfyun/summarize', {
+            method: 'POST',
+            body: formData
+          });
+
+          let data = null;
+          try {
+            data = await resp.json();
+            console.log('[信息] fetch响应内容:', data);
+          } catch (e) {
+            console.error('[错误] 后端返回内容无法解析为JSON, 状态码:', resp.status, e);
+            throw new Error('后端返回内容异常，无法解析为JSON，状态码：' + resp.status);
+          }
+
+          if (resp.ok) {
+            console.log('[信息] 后端返回成功，准备显示摘要');
+            summaryText.textContent = data.summary || "未获取到摘要内容";
+            summaryBox.style.display = '';
+            traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
+          } else {
+            console.error('[错误] 后端接口返回错误', data);
+            errorMsg.textContent = data.error || "服务端异常";
+            errorMsg.style.display = '';
+            traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
+          }
+        } catch (err) {
+          console.error('[错误] 网络或服务异常:', err);
+          errorMsg.textContent = "网络或服务异常：" + err.message;
+          errorMsg.style.display = '';
+        }
+        submitBtn.disabled = false;
+        submitBtn.textContent = "上传并生成摘要";
+      });
     });
   </script>
 </body>
