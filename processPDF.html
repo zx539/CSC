@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF文档摘要生成</title>
+  <style>
+    body { font-family: sans-serif; background: #f8f8f8; }
+    .container {
+      max-width: 480px; margin: 40px auto; padding: 24px;
+      background: #fff; border-radius: 8px; box-shadow: 0 2px 10px #eee;
+    }
+    h2 { margin-top: 0; }
+    .summary { background: #f7f7f7; padding: 16px; border-radius: 4px; margin-top: 20px; }
+    .error { color: #b71c1c; margin-top: 16px; }
+    .trace { font-size: 12px; color: #999; }
+    button { margin-top: 12px; padding: 6px 16px; }
+    input[type="file"] { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>PDF文档摘要生成</h2>
+    <form id="pdfForm">
+      <input type="file" id="fileInput" accept="application/pdf" />
+      <br />
+      <button type="submit" id="submitBtn">上传并生成摘要</button>
+    </form>
+    <div class="error" id="errorMsg" style="display:none"></div>
+    <div class="summary" id="summaryBox" style="display:none">
+      <strong>文档摘要：</strong>
+      <div id="summaryText" style="white-space:pre-wrap;margin-top:8px"></div>
+      <div class="trace" id="traceIdBox"></div>
+    </div>
+  </div>
+  <script>
+    const pdfForm = document.getElementById('pdfForm');
+    const fileInput = document.getElementById('fileInput');
+    const errorMsg = document.getElementById('errorMsg');
+    const summaryBox = document.getElementById('summaryBox');
+    const summaryText = document.getElementById('summaryText');
+    const traceIdBox = document.getElementById('traceIdBox');
+    const submitBtn = document.getElementById('submitBtn');
+
+    pdfForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      errorMsg.style.display = 'none';
+      summaryBox.style.display = 'none';
+      errorMsg.textContent = '';
+      summaryText.textContent = '';
+      traceIdBox.textContent = '';
+
+      const file = fileInput.files[0];
+      if (!file) {
+        errorMsg.textContent = '请先选择PDF文件';
+        errorMsg.style.display = '';
+        return;
+      }
+      if (file.type !== 'application/pdf') {
+        errorMsg.textContent = '请选择PDF文件';
+        errorMsg.style.display = '';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "正在上传并生成摘要...";
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // fetch 到 Node 后端，注意端口
+        const resp = await fetch('http://localhost:3000/api/xfyun/summarize', {
+          method: 'POST',
+          body: formData
+        });
+
+        let data = null;
+        try {
+          data = await resp.json();
+        } catch (e) {
+          throw new Error('后端返回内容异常，无法解析为JSON，状态码：' + resp.status);
+        }
+
+        if (resp.ok) {
+          summaryText.textContent = data.summary || "未获取到摘要内容";
+          summaryBox.style.display = '';
+          traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
+        } else {
+          errorMsg.textContent = data.error || "服务端异常";
+          errorMsg.style.display = '';
+          traceIdBox.textContent = data.traceId ? `(追踪ID: ${data.traceId})` : '';
+        }
+      } catch (err) {
+        errorMsg.textContent = "网络或服务异常：" + err.message;
+        errorMsg.style.display = '';
+      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = "上传并生成摘要";
+    });
+  </script>
+</body>
+</html>
