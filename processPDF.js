@@ -12,7 +12,6 @@ const cors = require('cors');
 const APP_ID = 'e8f592b9';
 const API_SECRET = 'MWMwMDI0MGJkYzY2ZjkyODg5ODg2ZTg4';
 
-// 修正 XF_BASE 仅为基础路径
 const XF_BASE = 'https://chatdoc.xfyun.cn/openapi/v1';
 const LOG_DIR = path.join(__dirname, 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
@@ -74,7 +73,6 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
     const resp = await axios.post(url, form, { headers });
     logInfo(traceId, 'upload', `Upload response:`, { data: resp.data });
     if (resp.data.code !== 0) throw new Error(`上传失败: ${resp.data.desc || resp.data.code}`);
-    // 注意：这里返回的fileId字段
     return resp.data.data.fileId;
   } catch (err) {
     logError(traceId, 'upload', err);
@@ -84,21 +82,33 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
 
 // 查询文档状态接口
 async function waitForFileReady(fileId, traceId, maxTries = 20) {
-  const url = `${XF_BASE}/file/detail?fileId=${fileId}`; // 修正为fileId
+  const url = `${XF_BASE}/file/status`;
   for (let i = 0; i < maxTries; i++) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = generateSignature(APP_ID, API_SECRET, timestamp);
+
+    const form = new FormData();
+    form.append('fileIds', fileId);
+
     const headers = {
+      ...form.getHeaders(),
       'appid': APP_ID,
       'timestamp': timestamp,
       'signature': signature
     };
+
     try {
       logInfo(traceId, 'fileStatus', `Checking file status. Try ${i + 1}`, { url, headers });
-      const resp = await axios.get(url, { headers });
+      const resp = await axios.post(url, form, { headers });
       logInfo(traceId, 'fileStatus', `File status response:`, { data: resp.data });
+
       if (resp.data.code !== 0) throw new Error(`状态查询失败: ${resp.data.desc || resp.data.code}`);
-      const status = resp.data.data.status;
+
+      const statusArr = resp.data.data || [];
+      const statusObj = statusArr.find(x => x.fileId === fileId);
+      if (!statusObj) throw new Error(`未找到文件${fileId}状态`);
+
+      const status = statusObj.fileStatus;
       if (['splited', 'vectoring', 'vectored'].includes(status)) return;
     } catch (err) {
       logError(traceId, 'fileStatus', err);
@@ -118,7 +128,7 @@ async function startSummary(fileId, traceId) {
   const signature = generateSignature(APP_ID, API_SECRET, timestamp);
 
   const form = new FormData();
-  form.append('fileId', fileId); // 修正为fileId
+  form.append('fileId', fileId);
 
   const headers = {
     ...form.getHeaders(),
@@ -139,23 +149,35 @@ async function startSummary(fileId, traceId) {
   }
 }
 
-// 轮询获取总结结果接口
-async function pollSummaryResult(sid, traceId, maxTries = 25) {
-  const url = `${XF_BASE}/file/summary/result?sid=${sid}`;
+// 轮询获取总结结果接口（修正为 fileId + /file/summary/query）
+async function pollSummaryResult(fileId, traceId, maxTries = 25) {
+  const url = `${XF_BASE}/file/summary/query`;
   for (let i = 0; i < maxTries; i++) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = generateSignature(APP_ID, API_SECRET, timestamp);
+
+    const form = new FormData();
+    form.append('fileId', fileId);
+
     const headers = {
+      ...form.getHeaders(),
       'appid': APP_ID,
       'timestamp': timestamp,
       'signature': signature
     };
+
     try {
       logInfo(traceId, 'pollSummary', `Polling summary result. Try ${i + 1}`, { url, headers });
-      const resp = await axios.get(url, { headers });
+      const resp = await axios.post(url, form, { headers });
       logInfo(traceId, 'pollSummary', `Summary poll response:`, { data: resp.data });
-      if (resp.data.code === 0 && resp.data.data && resp.data.data.summary) {
-        return resp.data.data.summary;
+      if (resp.data.code === 0 && resp.data.data) {
+        const status = resp.data.data.summaryStatus;
+        if (status === 'done') {
+          return resp.data.data.summary;
+        } else if (status === 'failed' || status === 'illegal') {
+          throw new Error('总结失败或内容敏感');
+        }
+        // 其它状态, 继续轮询
       }
     } catch (err) {
       logError(traceId, 'pollSummary', err);
@@ -183,13 +205,13 @@ app.post('/api/xfyun/summarize', upload.single('file'), async (req, res) => {
     await waitForFileReady(fileId, traceId);
 
     // 3. 发起文档总结
-    const sid = await startSummary(fileId, traceId);
+    await startSummary(fileId, traceId);
 
     // 4. 轮询获取总结结果
-    const summary = await pollSummaryResult(sid, traceId);
+    const summary = await pollSummaryResult(fileId, traceId);
 
-    logInfo(traceId, 'done', `Summary completed`, { fileId, sid });
-    res.json({ summary, fileId, sid, traceId });
+    logInfo(traceId, 'done', `Summary completed`, { fileId });
+    res.json({ summary, fileId, traceId });
   } catch (err) {
     logError(traceId, 'api', err);
     res.status(500).json({ error: err.message || err, traceId });
