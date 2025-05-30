@@ -12,7 +12,8 @@ const cors = require('cors');
 const APP_ID = 'e8f592b9';
 const API_SECRET = 'MWMwMDI0MGJkYzY2ZjkyODg5ODg2ZTg4';
 
-const XF_BASE = 'https://chatdoc.xfyun.cn/openapi/v1/file/summary/start';
+// 修正 XF_BASE 仅为基础路径
+const XF_BASE = 'https://chatdoc.xfyun.cn/openapi/v1';
 const LOG_DIR = path.join(__dirname, 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
@@ -51,6 +52,7 @@ function generateSignature(appId, apiSecret, timestamp) {
   return Buffer.from(hmac).toString('base64');
 }
 
+// 上传文件接口
 async function uploadFileToXfyun(filepath, filename, traceId) {
   const url = `${XF_BASE}/file/upload`;
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -61,9 +63,9 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
 
   const headers = {
     ...form.getHeaders(),
-    'AppId': APP_ID,
-    'Signature': signature,
-    'Timestamp': timestamp
+    'appid': APP_ID,
+    'timestamp': timestamp,
+    'signature': signature
   };
 
   try {
@@ -78,15 +80,16 @@ async function uploadFileToXfyun(filepath, filename, traceId) {
   }
 }
 
+// 查询文档状态接口
 async function waitForFileReady(fileId, traceId, maxTries = 20) {
   const url = `${XF_BASE}/file/detail?fileld=${fileId}`;
   for (let i = 0; i < maxTries; i++) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = generateSignature(APP_ID, API_SECRET, timestamp);
     const headers = {
-      'AppId': APP_ID,
-      'Signature': signature,
-      'Timestamp': timestamp
+      'appid': APP_ID,
+      'timestamp': timestamp,
+      'signature': signature
     };
     try {
       logInfo(traceId, 'fileStatus', `Checking file status. Try ${i + 1}`, { url, headers });
@@ -106,6 +109,7 @@ async function waitForFileReady(fileId, traceId, maxTries = 20) {
   throw timeoutErr;
 }
 
+// 发起文档总结接口
 async function startSummary(fileId, traceId) {
   const url = `${XF_BASE}/file/summary/start`;
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -116,9 +120,9 @@ async function startSummary(fileId, traceId) {
 
   const headers = {
     ...form.getHeaders(),
-    'AppId': APP_ID,
-    'Signature': signature,
-    'Timestamp': timestamp
+    'appid': APP_ID,
+    'timestamp': timestamp,
+    'signature': signature
   };
 
   try {
@@ -133,15 +137,16 @@ async function startSummary(fileId, traceId) {
   }
 }
 
+// 轮询获取总结结果接口
 async function pollSummaryResult(sid, traceId, maxTries = 25) {
   const url = `${XF_BASE}/file/summary/result?sid=${sid}`;
   for (let i = 0; i < maxTries; i++) {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const signature = generateSignature(APP_ID, API_SECRET, timestamp);
     const headers = {
-      'AppId': APP_ID,
-      'Signature': signature,
-      'Timestamp': timestamp
+      'appid': APP_ID,
+      'timestamp': timestamp,
+      'signature': signature
     };
     try {
       logInfo(traceId, 'pollSummary', `Polling summary result. Try ${i + 1}`, { url, headers });
@@ -169,10 +174,18 @@ app.post('/api/xfyun/summarize', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: '文件未上传', traceId });
   }
   try {
+    // 1. 上传文件
     const fileId = await uploadFileToXfyun(file.path, file.originalname, traceId);
+
+    // 2. 等待文件处理完成
     await waitForFileReady(fileId, traceId);
+
+    // 3. 发起文档总结
     const sid = await startSummary(fileId, traceId);
+
+    // 4. 轮询获取总结结果
     const summary = await pollSummaryResult(sid, traceId);
+
     logInfo(traceId, 'done', `Summary completed`, { fileId, sid });
     res.json({ summary, fileId, sid, traceId });
   } catch (err) {
